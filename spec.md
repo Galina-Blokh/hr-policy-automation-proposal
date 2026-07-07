@@ -2,7 +2,29 @@
 
 **Branch:** `prototype/guardrailed-knowledge-rag`  
 **Status:** MVP implemented  
-**Related:** [plan.md](./plan.md) (Section 4, Option 2)
+**Related:** [plan.md](./plan.md) (Section 4, Option 2) · [README.md](./README.md) (usage guide)
+
+---
+
+## Document Index
+
+| Section | Topic |
+| :--- | :--- |
+| [§1](#1-purpose) | Purpose and fit criteria |
+| [§2](#2-non-goals-mvp) | Non-goals |
+| [§3](#3-architecture) | Architecture and components |
+| [§4](#4-guardrail-contract) | Cite-or-refuse contract |
+| [§5](#5-data-model) | Data model and JSON schemas |
+| [§6](#6-repository-layout) | Repository layout |
+| [§7](#7-cli-interface) | CLI commands |
+| [§8](#8-module-reference) | Python module reference |
+| [§9](#9-acceptance-criteria) | Acceptance criteria |
+| [§10](#10-golden-qa-eval-set) | Golden Q&A eval set |
+| [§11](#11-risks--mitigations) | Risks and mitigations |
+| [§12](#12-success-metrics) | Success metrics |
+| [§13](#13-implementation-phases) | Implementation phases |
+| [§14](#14-vector-store-decision) | Vector store decision (ChromaDB vs pgvector) |
+| [§15](#15-environment-variables) | Environment variables |
 
 ---
 
@@ -60,8 +82,8 @@ flowchart LR
 | **Embedder** | Convert chunks to vectors | OpenAI `text-embedding-3-small` or local `sentence-transformers` |
 | **Vector store** | Persist and search embeddings | ChromaDB (local, zero-infra) |
 | **Retriever** | Fetch top-K relevant chunks for a query | Cosine similarity, K=3–5 |
-| **Generator** | Produce answer from retrieved context | OpenAI GPT-4o-mini / Claude Haiku via API |
-| **Guardrail layer** | Enforce cite-or-refuse behavior | System prompt + post-check for citation presence |
+| **Generator** | Produce answer from retrieved context | OpenAI GPT-4o-mini primary; Groq Llama 3.3 fallback |
+| **Guardrail layer** | Enforce cite-or-refuse behavior | 3-layer: pre-filter → retrieval gate → LLM prompt |
 
 ---
 
@@ -160,9 +182,16 @@ censor-app/
 │   ├── *.pdf                  # HR policy PDFs
 │   └── chroma/                # Vector store (generated)
 ├── src/
-│   ├── ingest.py            # Load → chunk → embed → store
-│   ├── query.py             # Retrieve → generate → guardrail check
-│   └── prompts.py           # System prompt templates
+│   ├── config.py            # Environment settings
+│   ├── documents.py         # PDF page extraction
+│   ├── chunker.py           # Token-based chunking
+│   ├── embeddings.py        # OpenAI embedding client
+│   ├── store.py             # ChromaDB vector store
+│   ├── llm.py               # OpenAI → Groq fallback
+│   ├── prompts.py           # Guardrail prompt templates
+│   ├── ingest.py            # Offline ingestion CLI
+│   ├── query.py             # Online query CLI
+│   └── eval.py              # Golden Q&A evaluation
 ├── tests/
 │   └── golden_qa.json       # Eval set for accuracy/refusal behavior
 ├── pyproject.toml
@@ -194,9 +223,51 @@ python -m src.query "When is the benefits enrollment deadline?" --pretty
 
 Expected output: JSON with `status`, `answer`, `citations`.
 
+### Evaluate
+
+```bash
+python -m src.eval
+python -m src.eval --file tests/golden_qa.json
+```
+
 ---
 
-## 8. Acceptance Criteria
+## 8. Module Reference
+
+| Module | Entry point | Description |
+| :--- | :--- | :--- |
+| `config.py` | `settings` | Loads `.env` into an immutable `Settings` dataclass |
+| `documents.py` | `load_documents()` | Extracts per-page text from PDF files |
+| `chunker.py` | `chunk_pages()` | Splits pages into overlapping token chunks |
+| `embeddings.py` | `EmbeddingClient` | OpenAI embedding API wrapper |
+| `store.py` | `VectorStore` | ChromaDB persistent store with cosine similarity |
+| `llm.py` | `LLMClient.complete()` | Chat completion with OpenAI → Groq fallback |
+| `prompts.py` | `build_system_prompt()` | Guardrail prompt templates |
+| `ingest.py` | `python -m src.ingest` | Offline pipeline CLI |
+| `query.py` | `answer_question()` | Online pipeline with 3-layer guardrails |
+| `eval.py` | `python -m src.eval` | Golden Q&A regression runner |
+
+### Query pipeline stages
+
+```
+question
+  │
+  ├─[Layer 1] is_personalized_question? ──yes──► refused (reason: personalized_question)
+  │
+  ├─ embed question (OpenAI)
+  ├─ retrieve top-K chunks (ChromaDB)
+  │
+  ├─[Layer 2] best_score < REFUSAL_THRESHOLD? ──yes──► refused (reason: low_retrieval_score)
+  │
+  ├─ LLM generation (OpenAI → Groq fallback)
+  │
+  └─[Layer 3] is_refusal(answer)? ──yes──► refused (reason: model_refusal)
+              └──no──► answered + citations
+```
+
+---
+
+## 9. Acceptance Criteria
 
 | # | Criterion | Pass condition |
 | :--- | :--- | :--- |
@@ -209,7 +280,7 @@ Expected output: JSON with `status`, `answer`, `citations`.
 
 ---
 
-## 9. Golden Q&A Eval Set (starter)
+## 10. Golden Q&A Eval Set (starter)
 
 | Question | Expected behavior |
 | :--- | :--- |
@@ -222,7 +293,7 @@ Expected output: JSON with `status`, `answer`, `citations`.
 
 ---
 
-## 10. Risks & Mitigations
+## 11. Risks & Mitigations
 
 | Risk | Impact | Mitigation |
 | :--- | :--- | :--- |
@@ -234,7 +305,7 @@ Expected output: JSON with `status`, `answer`, `citations`.
 
 ---
 
-## 11. Success Metrics
+## 12. Success Metrics
 
 Aligned with [plan.md](./plan.md) Section 6:
 
@@ -247,7 +318,7 @@ Aligned with [plan.md](./plan.md) Section 6:
 
 ---
 
-## 12. Implementation Phases
+## 13. Implementation Phases
 
 | Phase | Deliverable | Est. effort |
 | :--- | :--- | :--- |
@@ -259,20 +330,43 @@ Aligned with [plan.md](./plan.md) Section 6:
 
 ---
 
-## 13. Environment Variables
+## 14. Vector Store Decision
 
-```env
-# .env.example
-OPENAI_API_KEY=sk-...
-GROQ_API_KEY=gsk_...           # fallback LLM if OpenAI fails
+### Why ChromaDB for the MVP
 
-EMBEDDING_MODEL=text-embedding-3-small
-OPENAI_LLM_MODEL=gpt-4o-mini
-GROQ_LLM_MODEL=llama-3.3-70b-versatile
+| Criterion | ChromaDB | pgvector | Managed (Pinecone) |
+| :--- | :--- | :--- | :--- |
+| Setup time | Minutes (pip install) | Hours (Postgres + extension) | Hours (account + config) |
+| Infrastructure | Local files only | Requires PostgreSQL | Cloud vendor |
+| Fit for 187 chunks | Excellent | Over-engineered | Over-engineered |
+| Production audit trail | Limited | Strong (SQL joins) | Vendor-dependent |
+| Migration effort | N/A | Medium (swap `store.py`) | Medium |
 
-VECTOR_STORE_PATH=./data/chroma
-DATA_DIR=./data
-TOP_K=5
-REFUSAL_THRESHOLD=0.40         # min retrieval score to attempt answer
-HR_CONTACT_EMAIL=hr@company.com
-```
+**Decision:** ChromaDB for MVP speed and zero ops. The store interface in `src/store.py` is the only module that needs changing to migrate to pgvector when PostgreSQL is already in the client's stack.
+
+### When to migrate
+
+- Client already runs PostgreSQL in production
+- Need SQL joins between policy metadata, audit logs, and vectors
+- Corpus grows beyond ~100k chunks requiring distributed search
+
+---
+
+## 15. Environment Variables
+
+See [.env.example](./.env.example) for the annotated template.
+
+| Variable | Required | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `OPENAI_API_KEY` | Yes | — | Embeddings and primary LLM |
+| `GROQ_API_KEY` | Recommended | — | Fallback LLM on OpenAI failure |
+| `EMBEDDING_MODEL` | No | `text-embedding-3-small` | OpenAI embedding model |
+| `OPENAI_LLM_MODEL` | No | `gpt-4o-mini` | Primary chat model |
+| `GROQ_LLM_MODEL` | No | `llama-3.3-70b-versatile` | Fallback chat model |
+| `VECTOR_STORE_PATH` | No | `./data/chroma` | ChromaDB persistence directory |
+| `DATA_DIR` | No | `./data` | Default PDF source directory |
+| `TOP_K` | No | `5` | Chunks retrieved per query |
+| `REFUSAL_THRESHOLD` | No | `0.40` | Min cosine similarity to attempt answer |
+| `CHUNK_SIZE` | No | `500` | Tokens per chunk |
+| `CHUNK_OVERLAP` | No | `50` | Token overlap between chunks |
+| `HR_CONTACT_EMAIL` | No | `hr@company.com` | Contact in refusal messages |

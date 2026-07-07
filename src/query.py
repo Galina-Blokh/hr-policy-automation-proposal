@@ -1,3 +1,11 @@
+"""Online query pipeline with cite-or-refuse guardrails.
+
+Implements a three-layer safety model:
+1. Pre-filter — block personalized questions before retrieval.
+2. Retrieval gate — refuse when similarity score is below threshold.
+3. LLM guardrail — prompt-enforced grounding with post-check for refusal text.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -11,6 +19,7 @@ from src.llm import LLMClient
 from src.prompts import build_system_prompt, build_user_prompt
 from src.store import RetrievedChunk, VectorStore
 
+# Regex patterns for questions that require HRIS data, not static policy text.
 PERSONALIZED_PATTERNS = [
     r"\bmy\b.*\b(balance|pto|vacation days|leave days|enrollment status)\b",
     r"\bhow many (pto|vacation|leave) days do i have\b",
@@ -21,6 +30,22 @@ PERSONALIZED_PATTERNS = [
 
 @dataclass
 class QueryResponse:
+    """Structured response returned by the query pipeline.
+
+    Attributes
+    ----------
+    status:
+        Either `"answered"` or `"refused"`.
+    citations:
+        Source document references (empty when refused).
+    retrieval_score:
+        Best cosine similarity among retrieved chunks (0 if not retrieved).
+    provider:
+        LLM provider used (`"openai"`, `"groq"`, or None if LLM not called).
+    reason:
+        Machine-readable refusal cause for logging and evaluation.
+    """
+
     question: str
     status: str
     answer: str
@@ -30,15 +55,18 @@ class QueryResponse:
     reason: str | None = None
 
     def to_dict(self) -> dict:
+        """Serialize the response to a JSON-compatible dictionary."""
         return asdict(self)
 
 
 def is_personalized_question(question: str) -> bool:
+    """Detect questions that require individual employee data (Layer 1 guardrail)."""
     lowered = question.lower()
     return any(re.search(pattern, lowered) for pattern in PERSONALIZED_PATTERNS)
 
 
 def build_context_blocks(chunks: list[RetrievedChunk]) -> list[str]:
+    """Format retrieved chunks as labeled context blocks for the LLM prompt."""
     blocks: list[str] = []
     for chunk in chunks:
         blocks.append(
@@ -48,6 +76,7 @@ def build_context_blocks(chunks: list[RetrievedChunk]) -> list[str]:
 
 
 def extract_citations(chunks: list[RetrievedChunk]) -> list[dict]:
+    """Build deduplicated citation records from retrieved chunks."""
     seen: set[str] = set()
     citations: list[dict] = []
     for chunk in chunks:
@@ -67,12 +96,31 @@ def extract_citations(chunks: list[RetrievedChunk]) -> list[dict]:
 
 
 def is_refusal(answer: str) -> bool:
+    """Detect whether the LLM returned the standardized refusal message."""
     normalized = answer.strip().lower()
     refusal = settings.refusal_message().strip().lower()
     return normalized == refusal or normalized.startswith("i cannot verify this from the current hr policy")
 
 
 def answer_question(question: str) -> QueryResponse:
+    """Answer an HR policy question using the full RAG + guardrail pipeline.
+
+    Parameters
+    ----------
+    question:
+        Natural-language question from an employee.
+
+    Returns
+    -------
+    QueryResponse
+        Structured result with status, answer text, citations, and metadata.
+
+    Raises
+    ------
+    RuntimeError
+        If the vector store has not been populated via ingestion.
+    """
+    # Layer 1: refuse personalized questions without retrieval or LLM calls.
     if is_personalized_question(question):
         return QueryResponse(
             question=question,
@@ -93,6 +141,7 @@ def answer_question(question: str) -> QueryResponse:
     retrieved = store.query(query_embedding)
     best_score = retrieved[0].score if retrieved else 0.0
 
+    # Layer 2: refuse when retrieval confidence is too low to ground an answer.
     if not retrieved or best_score < settings.refusal_threshold:
         return QueryResponse(
             question=question,
@@ -104,6 +153,7 @@ def answer_question(question: str) -> QueryResponse:
             reason="low_retrieval_score",
         )
 
+    # Layer 3: LLM generation with cite-or-refuse prompt contract.
     llm = LLMClient()
     context_blocks = build_context_blocks(retrieved)
     raw_answer, provider = llm.complete(
@@ -134,6 +184,7 @@ def answer_question(question: str) -> QueryResponse:
 
 
 def main() -> None:
+    """CLI entry point for single-turn policy Q&A."""
     parser = argparse.ArgumentParser(description="Query HR policy documents with cite-or-refuse RAG.")
     parser.add_argument("question", type=str, help="HR policy question")
     parser.add_argument(

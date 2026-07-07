@@ -1,3 +1,10 @@
+"""Token-based text chunking for RAG ingestion.
+
+Splits document pages into overlapping segments sized for embedding models
+and retrieval. Overlap reduces the risk of splitting a policy sentence
+across chunk boundaries.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,6 +17,16 @@ from src.documents import DocumentPage
 
 @dataclass
 class TextChunk:
+    """A retrievable segment of policy text with citation metadata.
+
+    Attributes
+    ----------
+    chunk_id:
+        Unique identifier: `{doc_id}#p{page}c{index}`.
+    section:
+        Human-readable location string used in citations (title + page).
+    """
+
     chunk_id: str
     doc_id: str
     title: str
@@ -20,13 +37,31 @@ class TextChunk:
 
 
 def _encoding() -> tiktoken.Encoding:
+    """Return the tokenizer used to measure chunk sizes in tokens."""
     try:
         return tiktoken.encoding_for_model("gpt-4o-mini")
     except KeyError:
+        # Fall back to the cl100k_base encoding used by OpenAI embedding models.
         return tiktoken.get_encoding("cl100k_base")
 
 
 def _token_split(text: str, chunk_size: int, overlap: int) -> list[str]:
+    """Split text into fixed-size token windows with sliding overlap.
+
+    Parameters
+    ----------
+    text:
+        Source text from a document page.
+    chunk_size:
+        Maximum tokens per chunk.
+    overlap:
+        Tokens shared between consecutive chunks.
+
+    Returns
+    -------
+    list[str]
+        Decoded text segments ready for embedding.
+    """
     enc = _encoding()
     tokens = enc.encode(text)
     if not tokens:
@@ -39,11 +74,24 @@ def _token_split(text: str, chunk_size: int, overlap: int) -> list[str]:
         chunks.append(enc.decode(tokens[start:end]))
         if end >= len(tokens):
             break
+        # Slide the window forward, preserving `overlap` tokens of context.
         start = max(end - overlap, start + 1)
     return chunks
 
 
 def chunk_pages(pages: list[DocumentPage]) -> list[TextChunk]:
+    """Convert document pages into embedding-ready text chunks.
+
+    Parameters
+    ----------
+    pages:
+        Extracted pages from `documents.load_documents`.
+
+    Returns
+    -------
+    list[TextChunk]
+        All chunks across all pages, each with stable IDs and citation metadata.
+    """
     chunks: list[TextChunk] = []
     chunk_size = settings.chunk_size
     overlap = settings.chunk_overlap

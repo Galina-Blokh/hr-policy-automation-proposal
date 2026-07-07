@@ -1,3 +1,9 @@
+"""Golden Q&A evaluation runner for regression testing.
+
+Compares actual query pipeline behavior against expected outcomes defined in
+`tests/golden_qa.json`. Use after prompt, threshold, or ingestion changes.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -8,6 +14,18 @@ from src.query import QueryResponse, answer_question
 
 
 def run_eval(path: Path) -> dict:
+    """Execute all golden Q&A cases and compute pass rate.
+
+    Parameters
+    ----------
+    path:
+        JSON file containing a list of `{question, expected_status}` objects.
+
+    Returns
+    -------
+    dict
+        Summary with total, passed, pass_rate, and per-question results.
+    """
     cases = json.loads(path.read_text(encoding="utf-8"))
     results: list[dict] = []
     passed = 0
@@ -41,6 +59,7 @@ def run_eval(path: Path) -> dict:
 
 
 def main() -> None:
+    """CLI entry point for the golden evaluation set."""
     parser = argparse.ArgumentParser(description="Run golden Q&A evaluation set.")
     parser.add_argument(
         "--file",

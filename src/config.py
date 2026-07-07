@@ -1,3 +1,9 @@
+"""Application configuration loaded from environment variables.
+
+Centralizes all runtime settings so modules share a single source of truth.
+Values are read from a `.env` file (via python-dotenv) and process environment.
+"""
+
 from __future__ import annotations
 
 import os
@@ -11,6 +17,39 @@ load_dotenv()
 
 @dataclass(frozen=True)
 class Settings:
+    """Immutable runtime configuration for the RAG pipeline.
+
+    Attributes
+    ----------
+    openai_api_key:
+        Required for embeddings and primary LLM generation.
+    groq_api_key:
+        Used as fallback LLM when OpenAI generation fails.
+    embedding_model:
+        OpenAI embedding model identifier (e.g. text-embedding-3-small).
+    openai_llm_model:
+        Primary chat model for answer generation.
+    groq_llm_model:
+        Fallback chat model when OpenAI is unavailable.
+    vector_store_path:
+        Local directory for the ChromaDB persistent store.
+    data_dir:
+        Default directory containing source PDF policy documents.
+    top_k:
+        Number of chunks to retrieve per query.
+    refusal_threshold:
+        Minimum cosine similarity (0–1) required before invoking the LLM.
+        Below this threshold the system refuses without generation.
+    chunk_size:
+        Target chunk length in tokens during ingestion.
+    chunk_overlap:
+        Token overlap between consecutive chunks to preserve context.
+    hr_contact_email:
+        Contact address included in refusal messages.
+    collection_name:
+        ChromaDB collection name for stored policy chunks.
+    """
+
     openai_api_key: str
     groq_api_key: str
     embedding_model: str
@@ -27,6 +66,7 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> Settings:
+        """Build settings from environment variables with sensible defaults."""
         return cls(
             openai_api_key=os.getenv("OPENAI_API_KEY", ""),
             groq_api_key=os.getenv("GROQ_API_KEY", ""),
@@ -43,10 +83,12 @@ class Settings:
         )
 
     def refusal_message(self) -> str:
+        """Return the standardized refusal text shown to employees."""
         return (
             f"I cannot verify this from the current HR policy documents. "
             f"Please contact {self.hr_contact_email} for assistance."
         )
 
 
+# Module-level singleton used across the application.
 settings = Settings.from_env()
