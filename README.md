@@ -1,5 +1,4 @@
-# HR Policy Automation — Home Assignment
-
+# HR Policy Automation
 Proposal and prototypes for automating repetitive HR policy questions from new hires.
 
 **Primary deliverable:** [plan.md](./plan.md) — decision framework, discovery questions, build-vs-buy analysis, and MVP scope.
