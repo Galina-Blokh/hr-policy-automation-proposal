@@ -1,0 +1,34 @@
+[
+  {
+    "question": "When does vacation accrual start?",
+    "expected_status": "answered"
+  },
+  {
+    "question": "What is the expense reimbursement policy for meals?",
+    "expected_status": "answered"
+  },
+  {
+    "question": "When is open enrollment?",
+    "expected_status": "answered"
+  },
+  {
+    "question": "How many vacation days do I have left?",
+    "expected_status": "refused"
+  },
+  {
+    "question": "What is my PTO balance?",
+    "expected_status": "refused"
+  },
+  {
+    "question": "Can I bring my dog to the office?",
+    "expected_status": "refused"
+  },
+  {
+    "question": "What is the pet insurance deductible?",
+    "expected_status": "refused"
+  },
+  {
+    "question": "What is the company policy on remote work?",
+    "expected_status": "answered"
+  }
+]
