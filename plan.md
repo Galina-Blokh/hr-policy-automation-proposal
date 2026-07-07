@@ -168,3 +168,36 @@ To keep the prototype focused on **proving the core decision** (routing vs. retr
 Schedule a **30-minute discovery session with HR** using the 10 questions in Section 2. Bring one sample week of real questions (anonymized) if available — question mix (#4) and channel (#1) usually determine the path within one meeting.
 
 **Default recommendation if discovery is blocked:** Start with **Option 2 (Guardrailed RAG) MVP** on a single handbook domain. It is the lowest-risk way to prove value on static policy while we scope HRIS access for Option 1 or evaluate managed vendors for Option 3.
+
+---
+
+## 9. Repository Branches & Prototypes
+
+The proposal on `main` defines the thinking. Implementation lives on separate branches so each approach can be evaluated independently.
+
+| Branch | Option | Status | Contents |
+| :--- | :--- | :--- | :--- |
+| **`main`** | All (proposal) | Done | This document |
+| `prototype/guardrailed-knowledge-rag` | Option 2 — Guardrailed RAG | **Implemented** | Working cite-or-refuse RAG prototype |
+| `prototype/intent-driven-agentic-router` | Option 1 — Intent Router | Planned | Not yet built |
+
+### `prototype/guardrailed-knowledge-rag` (Option 2 MVP)
+
+A minimal working prototype that demonstrates the central idea: **answer HR policy questions from PDF handbooks with citations, or refuse when the documents don't support an answer.**
+
+| What was built | Purpose |
+| :--- | :--- |
+| PDF ingestion pipeline (`src/ingest.py`) | Chunk and index 3 sample HR handbooks in ChromaDB |
+| Cite-or-refuse query pipeline (`src/query.py`) | 3-layer guardrails: pre-filter → retrieval gate → LLM prompt |
+| Streamlit web UI (`src/ui.py`) | Demo interface for stakeholders |
+| Golden Q&A eval (`tests/golden_qa.json`) | Validates answer vs. refuse behavior |
+| Technical spec (`spec.md`) | Engineering decisions and future work |
+
+**To run the prototype:**
+
+```bash
+git checkout prototype/guardrailed-knowledge-rag
+# See README.md on that branch for full setup
+```
+
+See [README.md](./README.md) for branch overview and quick-start instructions.
