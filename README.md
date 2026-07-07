@@ -8,7 +8,12 @@ A document-centric Retrieval-Augmented Generation (RAG) system that answers repe
 
 ---
 
-![Uploading streamlit-ui-2026-07-07-12-55-55 (1).gif…]()
+
+https://github.com/user-attachments/assets/e33f597c-10b6-443d-b17f-e78c501fd790
+
+
+
+
 
 
 
