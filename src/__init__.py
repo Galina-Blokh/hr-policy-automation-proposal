@@ -16,6 +16,7 @@ prompts     Guardrail prompt templates for the LLM.
 ingest      Offline pipeline: PDF → chunks → embeddings → store.
 query       Online pipeline: retrieve → generate → cite-or-refuse.
 eval        Golden Q&A evaluation runner.
+ui          Streamlit web chat interface.
 
 Example
 -------
@@ -34,4 +35,5 @@ __all__ = [
     "ingest",
     "query",
     "eval",
+    "ui",
 ]

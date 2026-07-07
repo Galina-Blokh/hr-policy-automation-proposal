@@ -159,7 +159,7 @@ To keep the prototype focused on **proving the core decision** (routing vs. retr
 
 - **Multi-turn conversational memory** — Single-turn Q&A is sufficient for policy lookups; stateful chat adds complexity and context-drift risk without proportional value at MVP stage.
 - **Production write-back to HRIS** — No live Workday/ADP mutations (e.g., submitting PTO requests). MVP uses mocked responses to avoid audit, access-control, and rollback complexity before the approach is validated.
-- **Custom web UI** — No standalone portal. MVP runs via CLI/API or native chat connector to prove accuracy and routing, not frontend polish.
+- **Custom web UI** — Streamlit chat UI is included; production Slack/Teams connector comes after accuracy is validated.
 
 ---
 
@@ -168,3 +168,49 @@ To keep the prototype focused on **proving the core decision** (routing vs. retr
 Schedule a **30-minute discovery session with HR** using the 10 questions in Section 2. Bring one sample week of real questions (anonymized) if available — question mix (#4) and channel (#1) usually determine the path within one meeting.
 
 **Default recommendation if discovery is blocked:** Start with **Option 2 (Guardrailed RAG) MVP** on a single handbook domain. It is the lowest-risk way to prove value on static policy while we scope HRIS access for Option 1 or evaluate managed vendors for Option 3.
+
+---
+
+## 9. Prototype Delivered (Option 2 Branch)
+
+This repository's `prototype/guardrailed-knowledge-rag` branch implements the Option 2 MVP described above.
+
+| Deliverable | Status | Location |
+| :--- | :--- | :--- |
+| Proposal + decision framework | Done | [plan.md](./plan.md) |
+| Technical specification | Done | [spec.md](./spec.md) |
+| Ingestion pipeline (PDF → ChromaDB) | Done | `src/ingest.py` |
+| Query pipeline (cite-or-refuse) | Done | `src/query.py` |
+| Streamlit web UI | Done | `src/ui.py` |
+| Golden Q&A eval | Done (75% pass) | `tests/golden_qa.json` |
+| CLI + uv Python 3.12 environment | Done | `pyproject.toml` |
+
+### Why Option 2 was prototyped first
+
+| Factor | This project's answer | Decision |
+| :--- | :--- | :--- |
+| PDF handbooks available | 3 documents, 187 chunks | RAG-ready without HRIS |
+| Personalized query risk | High compliance cost | 3-layer guardrails + refuse |
+| HRIS API access | Not available for MVP | Option 1 deferred |
+| Engineering bandwidth | Sufficient for Python build | Custom build over Option 3 |
+| Goal | Prove safe deflection on static policy | Option 2 is lowest-risk starting point |
+
+### Prototype decision outcomes validated
+
+- **Cite-or-refuse works** — out-of-scope and personalized questions refuse correctly
+- **Citations included** — answered queries return document + page references
+- **Not production-ready** — 75% golden eval pass; retrieval tuning and HR review still needed
+
+---
+
+## 10. Future Work (Cross-Option Roadmap)
+
+| Phase | Work | Option | Trigger |
+| :--- | :--- | :--- | :--- |
+| **Now** | Tune retrieval + expand golden eval | 2 | Before HR demo |
+| **Next** | Slack/Teams bot | 2 + 3 patterns | Discovery Q1 = Slack/Teams |
+| **Next** | Intent router + mock HRIS | 1 | >30% personalized queries (Q4) |
+| **Later** | Managed bot comparison pilot | 3 | M365 shop + limited eng bandwidth |
+| **Later** | pgvector + audit logging | 2 | Production deployment approved |
+
+See [spec.md §17](./spec.md#17-future-work) for detailed backlog and production gates.

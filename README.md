@@ -1,7 +1,7 @@
 # HR Policy Automation — Guardrailed Knowledge RAG
 
 > **Branch:** `prototype/guardrailed-knowledge-rag`  
-> **Status:** Working MVP — CLI prototype with cite-or-refuse guardrails  
+> **Status:** Working MVP — web UI + CLI with cite-or-refuse guardrails  
 > **Proposal:** [plan.md](./plan.md) · **Technical spec:** [spec.md](./spec.md)
 
 A document-centric Retrieval-Augmented Generation (RAG) system that answers repetitive HR policy questions from verified PDF handbooks — with strict **cite-or-refuse** behavior to prevent hallucinated policy answers.
@@ -14,14 +14,17 @@ A document-centric Retrieval-Augmented Generation (RAG) system that answers repe
 2. [Architecture](#architecture)
 3. [Quick Start](#quick-start)
 4. [Usage](#usage)
-5. [Configuration](#configuration)
-6. [Response Format](#response-format)
-7. [Project Structure](#project-structure)
-8. [Guardrail Model](#guardrail-model)
-9. [Evaluation](#evaluation)
-10. [Design Decisions](#design-decisions)
-11. [Scope Boundaries](#scope-boundaries)
-12. [Troubleshooting](#troubleshooting)
+5. [Web UI](#web-ui)
+6. [Configuration](#configuration)
+7. [Response Format](#response-format)
+8. [Project Structure](#project-structure)
+9. [Guardrail Model](#guardrail-model)
+10. [Evaluation](#evaluation)
+11. [Design Decisions](#design-decisions)
+12. [Why Option 2 Was Built First](#why-option-2-was-built-first)
+13. [Scope Boundaries](#scope-boundaries)
+14. [Future Work](#future-work)
+15. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -107,7 +110,10 @@ copy .env.example .env
 # 1. Ingest PDFs from data/
 .venv\Scripts\python.exe -m src.ingest --source data
 
-# 2. Ask a question
+# 2. Ask a question (web UI — recommended)
+.venv\Scripts\hr-ui
+
+# Or CLI:
 .venv\Scripts\python.exe -m src.query "What is the company policy on remote work?" --pretty
 
 # 3. Run evaluation
@@ -147,6 +153,29 @@ copy .env.example .env
 .venv\Scripts\python.exe -m src.eval
 .venv\Scripts\python.exe -m src.eval --file tests/golden_qa.json
 ```
+
+---
+
+## Web UI
+
+Launch the Streamlit chat interface:
+
+```powershell
+.venv\Scripts\hr-ui
+# or
+.venv\Scripts\python.exe -m streamlit run src/ui.py
+```
+
+Opens at **http://localhost:8501** by default.
+
+| Feature | Description |
+| :--- | :--- |
+| **Input at top** | Question form stays above all conversation history on every rerun |
+| Conversation history | Previous Q&A rendered below the input area |
+| Citations | Expandable source list with document, page, and chunk ID |
+| Refusal display | Clear warning when policy cannot be verified |
+| Example questions | One-click buttons under the input for demo scenarios |
+| Sidebar | Indexed chunk count, clear chat, HR contact email |
 
 ---
 
@@ -220,9 +249,11 @@ censor-app/
 │   ├── prompts.py          # Guardrail prompt templates
 │   ├── ingest.py           # Offline ingestion CLI
 │   ├── query.py            # Online query CLI
+│   ├── ui.py               # Streamlit web UI
 │   └── eval.py             # Golden Q&A evaluation
 └── tests/
-    └── golden_qa.json      # Expected answer/refusal cases
+    ├── golden_qa.json       # Eval set for answer/refusal behavior
+    └── README.md            # Eval set format and interpretation
 ```
 
 ---
@@ -260,20 +291,109 @@ Golden Q&A set at `tests/golden_qa.json` validates:
 
 ## Design Decisions
 
-### Why ChromaDB?
+This section documents **why** specific choices were made — not just what was built.
 
-Chosen for zero-infrastructure local persistence during MVP. The vector store is isolated in `src/store.py` and can be swapped for pgvector in production without changing ingest/query logic. See [spec.md §14](./spec.md#14-vector-store-decision).
+### Why Option 2 (Guardrailed RAG) for this prototype?
 
-### Why OpenAI + Groq?
+See [Why Option 2 Was Built First](#why-option-2-was-built-first) for the full stakeholder decision logic. In short: PDF handbooks already exist, questions are mostly static policy text, and cite-or-refuse guardrails address compliance risk without requiring HRIS access on day one.
 
-| Capability | Provider | Rationale |
+### Why a 3-layer guardrail instead of prompt-only?
+
+| Approach | Risk | Our choice |
 | :--- | :--- | :--- |
-| Embeddings | OpenAI only | Groq has no embedding API |
-| Generation | OpenAI → Groq | Primary quality; fallback resilience |
+| Prompt-only ("don't hallucinate") | Model still guesses when retrieval fails | **Rejected** — insufficient for HR compliance |
+| RAG without refusal threshold | LLM called even when no relevant chunk exists | **Rejected** — wastes tokens and increases hallucination |
+| **3-layer: pre-filter + retrieval gate + prompt** | Defense in depth | **Chosen** — each layer catches failures the previous missed |
 
-### Why no UI?
+**Layer 1** blocks personalized questions (`"my PTO balance"`) before any API call — static PDFs cannot answer these.  
+**Layer 2** refuses when cosine similarity < `REFUSAL_THRESHOLD` (0.40) — no LLM call when retrieval is weak.  
+**Layer 3** prompt contract forces cite-or-refuse behavior when the LLM is invoked.
 
-CLI-first MVP keeps engineering focus on accuracy and guardrails. A FastAPI or Streamlit layer is Phase 4 in the spec.
+### Why `REFUSAL_THRESHOLD = 0.40`?
+
+| Threshold | Effect |
+| :--- | :--- |
+| Too low (e.g. 0.25) | More answers, but higher risk of irrelevant context reaching the LLM |
+| Too high (e.g. 0.60) | Safer refusals, but legitimate policy questions get blocked |
+| **0.40 (chosen)** | Balanced for a 187-chunk corpus — tuned empirically against the golden Q&A set |
+
+Adjust via `.env` after running `python -m src.eval` on your own handbook.
+
+### Why 500-token chunks with 50-token overlap?
+
+| Parameter | Rationale |
+| :--- | :--- |
+| **500 tokens** | Fits most policy paragraphs; small enough for precise retrieval |
+| **50 overlap** | Prevents sentences split across chunk boundaries from being lost |
+| Page-level metadata | Citations reference `{title} — page N` even when PDFs lack section headings |
+
+### Why ChromaDB over pgvector?
+
+| Criterion | ChromaDB | pgvector |
+| :--- | :--- | :--- |
+| MVP setup | Minutes, zero infra | Requires PostgreSQL instance |
+| Corpus size (187 chunks) | More than sufficient | Over-engineered for prototype |
+| Migration path | Swap `src/store.py` only | Same interface possible |
+
+See [spec.md §14](./spec.md#14-vector-store-decision) for the full comparison.
+
+### Why OpenAI + Groq (not a single provider)?
+
+| Capability | Provider | Decision |
+| :--- | :--- | :--- |
+| Embeddings | **OpenAI only** | Groq has no embedding API; embeddings are required for retrieval |
+| Generation | **OpenAI → Groq fallback** | Primary quality from `gpt-4o-mini`; Groq (`llama-3.3-70b`) keeps demos running if OpenAI fails |
+
+### Why Streamlit (not React / FastAPI-only)?
+
+| Option | Pros | Cons | Decision |
+| :--- | :--- | :--- | :--- |
+| CLI only | Fastest to build | Poor HR demo experience | Supplemented, not replaced |
+| **Streamlit** | Chat UI in ~200 lines; same Python pipeline | Not production-grade UX | **Chosen for MVP demo** |
+| Custom React | Full UX control | Days of frontend work unrelated to guardrail validation | Deferred |
+| Slack bot | Best adoption | Requires platform setup + approval | Future work |
+
+**UI layout decision:** Input form is pinned **above** conversation history (not bottom-fixed `st.chat_input`) so it remains visible after multiple example-question clicks — a Streamlit widget lifecycle requirement.
+
+### Why build (not buy) for Option 2?
+
+| Build (this prototype) | Buy (Copilot Studio / AWS Q) |
+| :--- | :--- |
+| Full control over cite-or-refuse behavior | Vendor guardrails vary; harder to audit |
+| Documents stay in local ChromaDB | Data residency depends on vendor tier |
+| 2–4 week custom MVP | 1–2 week config-only deploy |
+
+**Decision:** Custom build fits privacy-sensitive HR docs and proves the guardrail pattern. Option 3 (managed bot) remains the right choice if discovery reveals Slack-first culture + limited engineering bandwidth.
+
+---
+
+## Why Option 2 Was Built First
+
+This branch implements **Option 2** from [plan.md](./plan.md). The decision to prototype RAG before Options 1 or 3 follows the discovery framework:
+
+```mermaid
+flowchart LR
+    A[Vague request: automate HR Q&A] --> B{Do PDF handbooks exist?}
+    B -->|Yes - 3 PDFs in data/| C{Need personalized HRIS data?}
+    C -->|Not for MVP| D[Option 2: Guardrailed RAG]
+    C -->|Yes - balances, deadlines| E[Option 1: Intent Router]
+    B -->|No| F[Option 3: Managed Bot]
+    D --> G[Validate cite-or-refuse on real docs]
+    G --> H{Pass golden eval + HR review?}
+    H -->|Yes| I[Expand: Slack bot or Option 1 for personalized queries]
+    H -->|No| J[Tune retrieval / prompts; do not productionize]
+```
+
+| Discovery signal (this project) | Answer | Implication |
+| :--- | :--- | :--- |
+| Source documents exist? | 3 PDF handbooks in `data/` | RAG-ready |
+| Personalized query mix? | Blocked by Layer 1 pre-filter | Option 1 needed later for HRIS queries |
+| Compliance sensitivity? | High — refuse rather than guess | 3-layer guardrails required |
+| Engineering bandwidth? | Sufficient for Python MVP | Custom build viable |
+| Timeline? | Prototype for evaluation | Option 2 before Option 3 |
+
+**What this prototype proves:** HR can deflect static policy questions from real PDFs with citations and without fabricated answers.  
+**What it does not prove:** Personalized HRIS queries, Slack adoption, or production-scale ops.
 
 ---
 
@@ -285,8 +405,36 @@ Deliberately **not** included in this MVP:
 | :--- | :--- |
 | Multi-turn conversation memory | Single-turn Q&A sufficient for policy lookups |
 | HRIS write-back | Read-only Q&A; no Workday/ADP mutations |
-| Custom web UI | CLI proves core value; UI is a follow-up |
 | Production auth / SSO | Local prototype only |
+| Slack/Teams integration | Web UI proves value; chat-platform deploy is v2 |
+| Production auth / SSO | Local prototype only; no login gate |
+
+---
+
+## Future Work
+
+Prioritized by impact and dependency on HR discovery answers:
+
+| Priority | Item | Depends on | Effort |
+| :--- | :--- | :--- | :--- |
+| **P0** | Expand golden Q&A set from real HR question logs | HR provides anonymized sample week | 0.5 day |
+| **P0** | Tune `REFUSAL_THRESHOLD` / `TOP_K` to reach ≥90% eval pass rate | Eval results | 0.5 day |
+| **P1** | Slack or Teams bot wrapping `answer_question()` | Discovery Q1 (channel) | 1–2 weeks |
+| **P1** | Automated re-ingestion when HR uploads new PDF | HR doc ownership process | 1 day |
+| **P1** | Document effective-date metadata on chunks | Policy version tracking | 1 day |
+| **P2** | **Option 1 branch** — intent router for personalized HRIS queries | Workday/ADP API access | 2–4 weeks |
+| **P2** | Migrate `store.py` to pgvector | Existing PostgreSQL in client stack | 1 week |
+| **P2** | Hybrid retrieval (vector + keyword/BM25) | Retrieval miss analysis | 2–3 days |
+| **P3** | FastAPI REST wrapper for non-Streamlit clients | API consumers identified | 2–3 days |
+| **P3** | Human review queue for low-confidence answers | HR ops workflow | 1 week |
+| **P3** | Evaluate **Option 3** (Copilot Studio / AWS Q) for comparison | M365/AWS shop, fast deploy need | 1 week |
+
+### Decision gates before production
+
+1. **Accuracy gate** — Golden Q&A ≥ 90%; zero hallucinated policy on human audit sample.
+2. **HR sign-off gate** — HR reviews 20 real answers and confirms citation quality.
+3. **Channel gate** — Discovery Q1 determines Slack bot vs. web portal vs. both.
+4. **Personalization gate** — If >30% of questions need HRIS data, implement Option 1 alongside Option 2.
 
 ---
 

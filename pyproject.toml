@@ -10,6 +10,7 @@ dependencies = [
     "openai>=1.58",
     "pypdf>=5.1",
     "python-dotenv>=1.0",
+    "streamlit>=1.41",
     "tiktoken>=0.8",
 ]
 
@@ -17,6 +18,7 @@ dependencies = [
 hr-ingest = "src.ingest:main"
 hr-query = "src.query:main"
 hr-eval = "src.eval:main"
+hr-ui = "src.ui:launch"
 
 [build-system]
 requires = ["hatchling"]
